@@ -1,8 +1,12 @@
 import argparse
 import os
+import os.path as osp
 
 import mmcv
+import cv2
 import torch
+import numpy as np
+import pathlib
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import get_dist_info, init_dist, load_checkpoint
 from mmcv.utils import DictAction
@@ -11,12 +15,14 @@ from mmseg.apis import multi_gpu_test, single_gpu_test
 from mmseg.datasets import build_dataloader, build_dataset
 from mmseg.models import build_segmentor
 
+file_extensions = [".jpg", ".jpeg", ".png", ".tif", ".gif"]
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description='mmseg test (and eval) a model')
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
+    parser.add_argument('--test-path', help='test path of directory of images')
     parser.add_argument(
         '--aug-test', action='store_true', help='Use Flip and Multi scale aug')
     parser.add_argument('--out', help='output result file in pickle format')
@@ -64,6 +70,18 @@ def parse_args():
 
 def main():
     args = parse_args()
+    test_path = args.test_path
+    test_anndir_path = osp.join(test_path, "annotations")
+    images = [image for image in os.listdir(test_path) if image[-4:] in file_extensions]
+   
+    if not osp.exists(test_anndir_path):
+        os.makedirs(test_anndir_path)
+   
+    for image in images:
+        img = cv2.imread(osp.join(test_path, image))
+        fake_ann = np.zeros_like(img, dtype=np.uint8)
+        cv2.imwrite(osp.join(test_anndir_path, image.replace("jpg", "png")), fake_ann)
+
 
     assert args.out or args.eval or args.format_only or args.show \
         or args.show_dir, \
@@ -80,6 +98,11 @@ def main():
     cfg = mmcv.Config.fromfile(args.config)
     if args.options is not None:
         cfg.merge_from_dict(args.options)
+
+# 'data_root': 'data/ade/ADEChallengeData2016', 'img_dir': 'images/validation', 'ann_dir': 'annotations/valid
+    cfg.data.test.data_root=pathlib.Path(args.test_path).parent
+    cfg.data.test.img_dir=args.test_path
+    cfg.data.test.ann_dir=test_anndir_path
     # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True
@@ -102,6 +125,7 @@ def main():
     # build the dataloader
     # TODO: support multiple images per gpu (only minor changes are needed)
     dataset = build_dataset(cfg.data.test)
+    dataset.PALETTE[:4] = [[255, 0, 255], [255, 255, 0], [0, 255, 255], [255, 0, 0]]
     data_loader = build_dataloader(
         dataset,
         samples_per_gpu=1,
@@ -115,7 +139,7 @@ def main():
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
     model.CLASSES = checkpoint['meta']['CLASSES']
     model.PALETTE = checkpoint['meta']['PALETTE']
-
+    
     efficient_test = False
     if args.eval_options is not None:
         efficient_test = args.eval_options.get('efficient_test', False)
