@@ -2,3 +2,5 @@ matplotlib
 numpy
 terminaltables
 timm
+Pillow=7.0.0
+pathlib
