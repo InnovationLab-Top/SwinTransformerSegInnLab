@@ -33,6 +33,11 @@ def parse_args():
         'useful when you want to format the result to a specific format and '
         'submit it to the test server')
     parser.add_argument(
+        '--extract-mask',
+        type=int,
+        nargs='+',
+        help='Choose masks to be extracted after the segmentation')
+    parser.add_argument(
         '--eval',
         type=str,
         nargs='+',
@@ -73,14 +78,14 @@ def main():
     test_path = args.test_path
     test_anndir_path = osp.join(test_path, "annotations")
     images = [image for image in os.listdir(test_path) if image[-4:] in file_extensions]
-   
+
     if not osp.exists(test_anndir_path):
         os.makedirs(test_anndir_path)
    
     for image in images:
         img = cv2.imread(osp.join(test_path, image))
         fake_ann = np.zeros_like(img, dtype=np.uint8)
-        cv2.imwrite(osp.join(test_anndir_path, image.replace("jpg", "png")), fake_ann)
+        cv2.imwrite(osp.join(test_anndir_path, image[:-4] + ".png"), fake_ann)
 
 
     assert args.out or args.eval or args.format_only or args.show \
@@ -164,6 +169,13 @@ def main():
         kwargs = {} if args.eval_options is None else args.eval_options
         if args.format_only:
             dataset.format_results(outputs, **kwargs)
+        if args.extract_mask:
+            for i, output in enumerate(outputs):
+                for class_id in args.extract_mask:
+                    mask = np.where(output == class_id, True, False)
+                    with open(os.path.join(args.show_dir, f"{images[i][:-4]}_mask_{class_id}.npy"), 'wb') as outp:
+                        np.save(outp, mask)
+
         if args.eval:
             dataset.evaluate(outputs, args.eval, **kwargs)
 
